@@ -5,85 +5,81 @@ const App = () => {
     const [date, setDate] = useState("");
     const [description, setDescription] = useState("");
     const [story, setStory] = useState(null);
-    const [incidents, setIncidents] = useState([]); // ✅ Ensuring it starts as an array
+    const [loadingStory, setLoadingStory] = useState(false);
+    const [error, setError] = useState("");
 
-    // Fetch incidents
-    const fetchIncidents = () => {
-        fetch(`http://localhost:8000/incidents/${userId}`)
-            .then(res => res.json())
-            .then(data => {
-                if (Array.isArray(data)) {
-                    setIncidents(data);
-                } else {
-                    setIncidents([]);  // ✅ Default to empty array if response is invalid
-                }
-            })
-            .catch(err => {
-                console.error("Error fetching incidents:", err);
-                setIncidents([]);  // ✅ Ensure it's always an array
-            });
-    };
-
-    // Upload incident
-    const uploadIncident = (e) => {
+    // Upload memory
+    const uploadIncident = async (e) => {
         e.preventDefault();
-        fetch("http://localhost:8000/incidents/", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ user_id: userId, date, description })
-        })
-        .then(res => res.json())
-        .then(() => {
-            fetchIncidents();
+        if (!date || !description.trim()) {
+            setError("Please fill all fields.");
+            return;
+        }
+        try {
+            await fetch("http://localhost:8000/incidents/", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ user_id: userId, date, description })
+            });
             setDate("");
             setDescription("");
-        })
-        .catch(err => console.error("Error uploading incident:", err));
+            setError("");
+        } catch (err) {
+            setError("Error uploading memory.");
+        }
     };
 
-    // Generate Story
-    const generateStory = () => {
-        fetch(`http://localhost:8000/generate_story/${userId}`)
-            .then(res => res.json())
-            .then(data => setStory(data))
-            .catch(err => console.error("Error generating story:", err));
+    // Generate story
+    const generateStory = async () => {
+        setLoadingStory(true);
+        setError("");
+        try {
+            const res = await fetch(`http://localhost:8000/generate_story/${userId}`);
+            const data = await res.json();
+            setStory(data);
+        } catch (err) {
+            setError("Error generating story.");
+        }
+        setLoadingStory(false);
     };
-
-    useEffect(() => {
-        fetchIncidents();
-    }, [userId]);
 
     return (
-        <div>
-            <h2>📖 Remember When...</h2>
+        <div className="container">
+            <h1>📖 Remember When...</h1>
 
             {/* Upload Incident Form */}
-            <form onSubmit={uploadIncident}>
+            <form onSubmit={uploadIncident} className="form">
+                <label>Date:</label>
                 <input type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
-                <input type="text" placeholder="Describe your memory" value={description} onChange={(e) => setDescription(e.target.value)} required />
+
+                <label>Memory:</label>
+                <textarea
+                    placeholder="Describe your memory..."
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    required
+                ></textarea>
+
                 <button type="submit">Add Memory</button>
             </form>
 
-            {/* Display Incidents */}
-            <h3>Your Memories:</h3>
-            <ul>
-                {incidents.length > 0 ? (
-                    incidents.map((incident, index) => (
-                        <li key={index}>{incident.date}: {incident.description}</li>
-                    ))
-                ) : (
-                    <p>No memories found.</p> // ✅ Fallback if no incidents are found
-                )}
-            </ul>
+            {/* Error Messages */}
+            {error && <p className="error">{error}</p>}
 
             {/* Generate Story Button */}
-            <button onClick={generateStory}>Generate Story</button>
+            <button onClick={generateStory} className="generate-btn">
+                {loadingStory ? "Generating..." : "📜 Create My Story"}
+            </button>
 
             {/* Display Story */}
             {story && (
-                <div>
+                <div className="story-box">
                     <h2>{story.title}</h2>
                     <p>{story.story}</p>
+                    <img src={story.image_url} alt="Memory" />
+                    <audio controls>
+                        <source src={story.audio_url} type="audio/mpeg" />
+                    </audio>
                 </div>
             )}
         </div>
