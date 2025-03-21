@@ -8,7 +8,6 @@ import random
 from fastapi.middleware.cors import CORSMiddleware
 import certifi
 from fastapi.responses import FileResponse
-from gtts import gTTS
 import uuid  # For unique filenames
 
 # Load environment variables
@@ -17,12 +16,12 @@ load_dotenv()
 # MongoDB Connection
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017")
 client = MongoClient(MONGO_URI, tlsCAFile=certifi.where())
-db = client["memories"]
-collection = db["incidents"]
+db = client["dementia"]  # Use the existing database name
+collection = db["fileids"]  # The main collection containing the mem_data field
 
 # OpenAI API Key
 openai.api_key = os.getenv("OPENAI_API_KEY")
-MODEL = "gpt-4o"
+MODEL = "gpt-4o-mini-tts"
 
 # Initialize FastAPI
 app = FastAPI()
@@ -36,39 +35,23 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Pydantic Model for Incident
-class Incident(BaseModel):
-    user_id: str
-    date: str
-    description: str
-
-# Route to add an incident
-@app.post("/incidents/")
-async def add_incident(incident: Incident):
-    try:
-        collection.insert_one(incident.model_dump())
-        return {"message": "Incident added successfully!"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-# Route to fetch user incidents
-@app.get("/incidents/{user_id}")
-async def get_incidents(user_id: str):
-    incidents = list(collection.find({"user_id": user_id}, {"_id": 0}))
-    if not incidents:
-        raise HTTPException(status_code=404, detail="No incidents found")
-    return incidents
+# Route to fetch user memories
+@app.get("/memories/")
+async def get_memories():
+    user_data = collection.find_one({}, {"_id": 0, "mem_data": 1})  # Fetch only mem_data
+    if not user_data or "mem_data" not in user_data:
+        raise HTTPException(status_code=404, detail="No memories found")
+    return user_data["mem_data"]
 
 # Route to generate story with audio & image
-@app.get("/generate_story/{user_id}")
-async def generate_story(user_id: str):
-    incidents = list(collection.find({"user_id": user_id}, {"_id": 0, "description": 1, "date": 1}))
+@app.get("/generate_story")
+async def generate_story():
+    user_data = collection.find_one({}, {"_id": 0, "mem_data": 1})
+    if not user_data or "mem_data" not in user_data:
+        raise HTTPException(status_code=404, detail="No memories found")
 
-    if not incidents:
-        raise HTTPException(status_code=404, detail="No incidents found")
-
-    # Select one random memory
-    selected_memory = random.choice(incidents)
+    memories = user_data["mem_data"]
+    selected_memory = random.choice(memories)
     
     # Create a nostalgic recap
     story_prompt = f"Turn this memory into a short, warm, and nostalgic recap for a dementia patient:\n\nDate: {selected_memory['date']}\nMemory: {selected_memory['description']}"
@@ -83,10 +66,17 @@ async def generate_story(user_id: str):
         )
         story = response.choices[0].message.content
 
-        # 🎙 Generate Audio
+        # 🎙 Generate Audio using OpenAI TTS
         audio_filename = f"story_{uuid.uuid4()}.mp3"
-        tts = gTTS(text=story, lang="en")
-        tts.save(audio_filename)
+        audio_response = openai.audio.speech.create(
+            model="tts-1",  # OpenAI's TTS model
+            voice="alloy",  # Choose a voice (alloy, echo, fable, onyx, nova, shimmer)
+            input=story
+        )
+
+        # Save the audio file
+        with open(audio_filename, "wb") as audio_file:
+            audio_file.write(audio_response.content)
 
         # 🖼 Generate Image (DALL-E)
         dalle_response = openai.images.generate(

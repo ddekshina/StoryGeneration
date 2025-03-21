@@ -34,7 +34,7 @@ const App = () => {
         setLoadingStory(true);
         setError("");
         try {
-            const res = await fetch(`http://localhost:8000/generate_story/${userId}`);
+            const res = await fetch(`http://localhost:8000/generate_story`);
             const data = await res.json();
             setStory(data);
         } catch (err) {
